@@ -30,6 +30,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.util.Log;
 
@@ -126,6 +127,7 @@ public class GifDecoder {
 
     protected int framePointer;
     protected int frameCount;
+    private RsLzwDecoder rsDecoder;
 
     /**
      * Inner model class housing metadata for each frame
@@ -143,8 +145,15 @@ public class GifDecoder {
         public int delay;
         /* Index in the raw buffer where we need to start reading to decode */
         public int bufferFrameStart;
+        public int imageDataSize;
         /* Local Color Table */
         public int[] lct;
+    }
+
+    private Context context;
+
+    public GifDecoder(Context context) {
+        this.context = context;
     }
 
     /**
@@ -239,7 +248,8 @@ public class GifDecoder {
             return null;
         }
 
-        setPixels(framePointer); // transfer pixel data to image
+//        setPixels(framePointer); // transfer pixel data to image
+        decodeFrameBitmapRS(frames.get(framePointer));
 
         // Reset the transparent pixel in the color table
         if (frame.transparency) {
@@ -353,7 +363,11 @@ public class GifDecoder {
         }
 
         // Decode pixels for this frame into the global pixels[] scratch
+        long time = System.nanoTime();
         decodeBitmapData(currentFrame, mainPixels); // decode pixel data
+//        decodeBitmapDataRS(currentFrame, mainPixels); // decode pixel data
+        time = System.nanoTime() - time;
+        Log.d(TAG, "decodeData time: " + (time / 1000));
 
         // copy each source line to the appropriate place in the destination
         int pass = 1;
@@ -409,6 +423,32 @@ public class GifDecoder {
         previousImage.setPixels(copyScratch, 0, width, 0, 0, width, height);
         // Set pixels for current image
         currentImage.setPixels(dest, 0, width, 0, 0, width, height);
+    }
+
+//    protected void decodeBitmapDataRS(final GifFrame frame, byte[] dstPixels) {
+//        if (rsDecoder == null) {
+//            int max = 0;
+//            for (GifFrame f : frames) {
+//                if (f.imageDataSize > max) max = f.imageDataSize;
+//            }
+//            rsDecoder = new RsLzwDecoder(context, width, height, max);
+//        }
+//
+//        rawData.position(frame.bufferFrameStart);
+//        rsDecoder.decode(rawData, frame.imageDataSize, frame.iw, frame.ih, dstPixels);
+//    }
+
+    protected void decodeFrameBitmapRS(final GifFrame frame) {
+        if (rsDecoder == null) {
+            int max = 0;
+            for (GifFrame f : frames) {
+                if (f.imageDataSize > max) max = f.imageDataSize;
+            }
+            rsDecoder = new RsLzwDecoder(context, width, height, max, currentImage);
+        }
+
+        rawData.position(frame.bufferFrameStart);
+        rsDecoder.decode(rawData, frame.imageDataSize, frame.ix, frame.iy, frame.iw, frame.ih, frame.lct == null ? gct : frame.lct, currentImage);
     }
 
     /**
@@ -726,6 +766,11 @@ public class GifDecoder {
         currentFrame.bufferFrameStart = rawData.position(); // Save this as the decoding position pointer
 
         skipBitmapData();
+
+        currentFrame.imageDataSize = rawData.position() - currentFrame.bufferFrameStart;
+
+        Log.d(TAG, "frame: " + frameCount + " image data start: " + currentFrame.bufferFrameStart + " size: " + currentFrame.imageDataSize);
+
         if (err()) {
             return;
         }
@@ -761,8 +806,8 @@ public class GifDecoder {
             mainScratch = new int[width * height];
             copyScratch = new int[width * height];
 
-            previousImage = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565);
-            currentImage = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565);
+            previousImage = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            currentImage = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         } catch (final OutOfMemoryError e) {
             // Try with halving down the bitmap size
             final int dimension = (width * height) / 2;
@@ -770,8 +815,8 @@ public class GifDecoder {
             mainScratch = new int[dimension];
             copyScratch = new int[dimension];
 
-            previousImage = Bitmap.createBitmap(width / 2, height / 2, Bitmap.Config.RGB_565);
-            currentImage = Bitmap.createBitmap(width / 2, height / 2, Bitmap.Config.RGB_565);
+            previousImage = Bitmap.createBitmap(width / 2, height / 2, Bitmap.Config.ARGB_8888);
+            currentImage = Bitmap.createBitmap(width / 2, height / 2, Bitmap.Config.ARGB_8888);
         }
     }
 

@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.widget.ImageView;
@@ -47,7 +48,7 @@ public class GifImageView extends ImageView implements Runnable {
     }
 
     public void setBytes(final byte[] bytes) {
-        gifDecoder = new GifDecoder();
+        gifDecoder = new GifDecoder(getContext());
         try {
             gifDecoder.read(bytes);
         } catch (final OutOfMemoryError e) {
@@ -58,6 +59,7 @@ public class GifImageView extends ImageView implements Runnable {
 
         if (canStart()) {
             animationThread = new Thread(this);
+            animationThread.setDaemon(true);
             animationThread.start();
         }
     }
@@ -67,6 +69,7 @@ public class GifImageView extends ImageView implements Runnable {
 
         if (canStart()) {
             animationThread = new Thread(this);
+            animationThread.setDaemon(true);
             animationThread.start();
         }
     }
@@ -84,6 +87,12 @@ public class GifImageView extends ImageView implements Runnable {
         }
     }
 
+    @Override
+    protected void onDetachedFromWindow() {
+        clear();
+        super.onDetachedFromWindow();
+    }
+
     public void clear() {
         shouldClear = true;
         stopAnimation();
@@ -99,6 +108,7 @@ public class GifImageView extends ImageView implements Runnable {
         final int n = gifDecoder.getFrameCount();
         do {
             for (int i = 0; i < n; i++) {
+                long time = SystemClock.uptimeMillis();
                 if (!animating)
                     break;
                 try {
@@ -111,9 +121,13 @@ public class GifImageView extends ImageView implements Runnable {
                 }
                 if (!animating)
                     break;
+                long time1 = SystemClock.uptimeMillis() - time;
+                Log.d(TAG, "frame: " + gifDecoder.framePointer + " decoder time: " + time1);
                 gifDecoder.advance();
                 try {
-                    Thread.sleep(gifDecoder.getNextDelay());
+                    int delay = gifDecoder.getNextDelay();
+                    Log.d(TAG, "frame: " + gifDecoder.framePointer + " delay: " + delay);
+                    if (delay > time1) Thread.sleep(delay - time1);
                 } catch (final InterruptedException e) {
                     // suppress
                 }
